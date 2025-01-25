@@ -5,12 +5,12 @@
 #define MOSFET_PWM_PIN 25   // Controls gauge needle
 #define BACKLIGHT_PIN 26    // Blinks when level is low
 #define KILL_PIN 27         // Cuts power when level is low or temp is high
-#define LEVEL_SENSOR_PIN 34 // Analog input for tank fill level (Now using GPIO 34)
+#define LEVEL_SENSOR_PIN 34 // Analog input for tank fill level
 #define THERMISTOR_PIN 35   // Analog input for thermistor
 
 // PWM Configuration
 #define PWM_FREQUENCY 5000  // PWM frequency in Hz
-#define PWM_RESOLUTION LEDC_TIMER_10_BIT  // 10-bit for smooth gauge control
+#define PWM_RESOLUTION LEDC_TIMER_8_BIT  // 8-bit for correct gauge response
 #define PWM_CHANNEL LEDC_CHANNEL_0
 
 // Fill Level Ranges
@@ -65,7 +65,7 @@ void setup() {
 }
 
 void loop() {
-    // Read analog inputs
+    // Read analog input and scale to PWM range
     int levelADC = readSmoothADC(LEVEL_SENSOR_PIN);
     float inputVoltage = (levelADC / 4095.0) * 3.3;
     int targetDuty = map(levelADC, 0, 4095, MIN_DUTY, MAX_DUTY);
@@ -110,8 +110,13 @@ int readSmoothADC(int pin) {
 float readThermistor(int pin) {
     int adcValue = readSmoothADC(pin);
     float voltage = adcValue * (3.3 / 4095.0);
-    float resistance = (SERIES_RESISTOR * voltage) / (3.3 - voltage);
+
+    // Prevent divide-by-zero error
+    if (voltage <= 0.1) return -999;
+
+    float resistance = SERIES_RESISTOR * (voltage / (3.3 - voltage));
     float temperature = 1.0 / ((log(resistance / SERIES_RESISTOR) / THERMISTOR_BETA) + (1.0 / 298.15)) - 273.15;
+
     return temperature;
 }
 
@@ -130,8 +135,9 @@ void manageSafety(int pwmDuty, float temperature) {
         digitalWrite(BACKLIGHT_PIN, LOW);
     }
 
-    // Cut Power if level is too low OR temperature too high
+    // Cut Power if level is too low OR temperature is too high
     if (pwmDuty < LOW_LEVEL_THRESHOLD || temperature > TEMP_THRESHOLD) {
+        Serial.println("KILL PIN ACTIVATED! Power Off!");
         digitalWrite(KILL_PIN, LOW);
     } else {
         digitalWrite(KILL_PIN, HIGH);
